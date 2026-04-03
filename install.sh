@@ -2,15 +2,13 @@
 set -euo pipefail
 
 # ── Orbis Installer ──────────────────────────────────────────────────────────
-# Usage: bash <(curl -fsSL https://install.iamorbis.one)
+# Usage: bash <(curl -fsSL https://install.iamorbis.one/install.sh)
 # -----------------------------------------------------------------------------
 
 ORBIS_VERSION="${ORBIS_VERSION:-latest}"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/orbis}"
-COMPOSE_URL="https://install.iamorbis.one/docker-compose.yml"
-ENV_URL="https://install.iamorbis.one/.env.example"
-TEMPORAL_CONFIG_URL="https://install.iamorbis.one/temporal-dynamicconfig.yaml"
-NGINX_CONFIG_URL="https://install.iamorbis.one/nginx.selfhosted.conf"
+PRIMARY_BASE_URL="https://install.iamorbis.one"
+MIRROR_BASE_URL="https://raw.githubusercontent.com/HAANGroup/ooainstall/master"
 
 # ── Colors ───────────────────────────────────────────────────────────────────
 R='\033[0;31m'; G='\033[0;32m'; Y='\033[1;33m'; C='\033[0;36m'
@@ -24,6 +22,22 @@ warn()    { echo -e "  ${Y}⚠${NC}  $*"; }
 ask()     { echo -e "  ${M}?${NC}  $*"; }
 error()   { echo -e "\n  ${R}✖  $*${NC}" >&2; exit 1; }
 divider() { echo -e "  ${DIM}────────────────────────────────────────────────${NC}"; }
+
+download_file() {
+  local path="$1"
+  local output="$2"
+  local url
+
+  for base in "$MIRROR_BASE_URL" "$PRIMARY_BASE_URL"; do
+    url="${base}/${path}"
+    if curl -fsSL "$url" -o "$output"; then
+      ok "${output}"
+      return 0
+    fi
+  done
+
+  error "Failed to download ${path} from all installer sources."
+}
 
 # ── Banner ───────────────────────────────────────────────────────────────────
 echo ""
@@ -54,13 +68,13 @@ ok "Install directory: ${INSTALL_DIR}"
 
 # ── Download config files ─────────────────────────────────────────────────────
 step "Downloading config files"
-curl -fsSL "$COMPOSE_URL"          -o docker-compose.yml       && ok "docker-compose.yml"
-curl -fsSL "$TEMPORAL_CONFIG_URL"  -o temporal-dynamicconfig.yaml && ok "temporal-dynamicconfig.yaml"
-curl -fsSL "$NGINX_CONFIG_URL"     -o nginx.selfhosted.conf    && ok "nginx.selfhosted.conf"
+download_file "docker-compose.yml" docker-compose.yml
+download_file "temporal-dynamicconfig.yaml" temporal-dynamicconfig.yaml
+download_file "nginx.selfhosted.conf" nginx.selfhosted.conf
 
 # ── Environment file ──────────────────────────────────────────────────────────
 if [ ! -f .env ]; then
-  curl -fsSL "$ENV_URL" -o .env && ok ".env template downloaded"
+  download_file ".env.example" .env
 
   if command -v openssl >/dev/null 2>&1; then
     step "Generating secrets"
@@ -188,7 +202,7 @@ else
 fi
 
 # ── Telemetry ping (anonymous) ────────────────────────────────────────────────
-curl -fsSL -X POST https://install.iamorbis.one/telemetry/install \
+curl -fsSL -X POST "${PRIMARY_BASE_URL}/telemetry/install" \
   -H "Content-Type: application/json" \
   -d "{\"version\":\"${ORBIS_VERSION}\",\"os\":\"$(uname -s)\"}" \
   --max-time 5 --silent > /dev/null 2>&1 || true

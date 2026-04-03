@@ -6,10 +6,8 @@ $ErrorActionPreference = "Stop"
 
 $OrbisVersion  = if ($env:ORBIS_VERSION) { $env:ORBIS_VERSION } else { "latest" }
 $InstallDir    = if ($env:INSTALL_DIR)   { $env:INSTALL_DIR   } else { "$env:USERPROFILE\orbis" }
-$ComposeUrl          = "https://install.iamorbis.one/docker-compose.yml"
-$EnvUrl              = "https://install.iamorbis.one/.env.example"
-$TemporalConfigUrl   = "https://install.iamorbis.one/temporal-dynamicconfig.yaml"
-$NginxConfigUrl      = "https://install.iamorbis.one/nginx.selfhosted.conf"
+$PrimaryBaseUrl      = "https://install.iamorbis.one"
+$MirrorBaseUrl       = "https://raw.githubusercontent.com/HAANGroup/ooainstall/master"
 
 function Write-Info    { param($msg) Write-Host "[orbis] $msg" -ForegroundColor Cyan }
 function Write-Success { param($msg) Write-Host "[orbis] $msg" -ForegroundColor Green }
@@ -17,6 +15,28 @@ function Write-Warn    { param($msg) Write-Host "[orbis] $msg" -ForegroundColor 
 function Write-Err     { param($msg) Write-Host "[orbis] ERROR: $msg" -ForegroundColor Red; exit 1 }
 
 function New-RandomHex { param($bytes) -join ((1..$bytes) | ForEach-Object { '{0:x2}' -f (Get-Random -Max 256) }) }
+
+function Get-OrbisFile {
+    param(
+        [string]$Path,
+        [string]$OutFile
+    )
+
+    $sources = @(
+        "$MirrorBaseUrl/$Path",
+        "$PrimaryBaseUrl/$Path"
+    )
+
+    foreach ($source in $sources) {
+        try {
+            Invoke-WebRequest -Uri $source -OutFile $OutFile
+            Write-Success "$OutFile downloaded"
+            return
+        } catch { }
+    }
+
+    Write-Err "Failed to download $Path from all installer sources."
+}
 
 Write-Host ""
 Write-Host "  ██████╗ ██████╗ ██████╗ ██╗███████╗" -ForegroundColor Magenta
@@ -48,18 +68,12 @@ Set-Location $InstallDir
 Write-Info "Installing into: $InstallDir"
 
 # ── Download compose + env ────────────────────────────────────────────────────
-Write-Info "Downloading docker-compose.yml..."
-Invoke-WebRequest -Uri $ComposeUrl -OutFile "docker-compose.yml"
-
-Write-Info "Downloading temporal-dynamicconfig.yaml..."
-Invoke-WebRequest -Uri $TemporalConfigUrl -OutFile "temporal-dynamicconfig.yaml"
-
-Write-Info "Downloading nginx.selfhosted.conf..."
-Invoke-WebRequest -Uri $NginxConfigUrl -OutFile "nginx.selfhosted.conf"
+Get-OrbisFile -Path "docker-compose.yml" -OutFile "docker-compose.yml"
+Get-OrbisFile -Path "temporal-dynamicconfig.yaml" -OutFile "temporal-dynamicconfig.yaml"
+Get-OrbisFile -Path "nginx.selfhosted.conf" -OutFile "nginx.selfhosted.conf"
 
 if (-not (Test-Path ".env")) {
-    Write-Info "Downloading .env template..."
-    Invoke-WebRequest -Uri $EnvUrl -OutFile ".env"
+    Get-OrbisFile -Path ".env.example" -OutFile ".env"
 
     # ── Auto-generate required secrets ────────────────────────────────────────
     Write-Info "Auto-generating secrets..."
@@ -198,7 +212,7 @@ Write-Host ""
 # ── Telemetry ping (anonymous) ────────────────────────────────────────────────
 try {
     $body = "{`"version`":`"$OrbisVersion`",`"os`":`"Windows`"}"
-    Invoke-WebRequest -Uri "https://install.iamorbis.one/telemetry/install" `
+    Invoke-WebRequest -Uri "$PrimaryBaseUrl/telemetry/install" `
         -Method POST -Body $body -ContentType "application/json" `
         -TimeoutSec 5 -UseBasicParsing | Out-Null
 } catch { }
