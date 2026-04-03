@@ -1,0 +1,133 @@
+# ── Orbis Self-Hosted — Installer Compose ────────────────────────────────────
+# This file is used by the public installer. It pulls pre-built images.
+# Do not edit the image tags manually — run the upgrade script to update.
+
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: orbis
+      POSTGRES_USER: orbis
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_HOST_AUTH_METHOD: md5
+      POSTGRES_INITDB_ARGS: "--auth-host=md5 --auth-local=md5"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orbis"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://orbis:${DB_PASSWORD}@postgres:5432/orbis
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 200
+      DEFAULT_POOL_SIZE: 25
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  temporal:
+    image: temporalio/auto-setup:1.24
+    restart: unless-stopped
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: orbis
+      POSTGRES_PWD: ${DB_PASSWORD}
+      POSTGRES_SEEDS: postgres
+      DYNAMIC_CONFIG_FILE_PATH: /etc/temporal/dynamicconfig.yaml
+    volumes:
+      - ./temporal-dynamicconfig.yaml:/etc/temporal/dynamicconfig.yaml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    image: ${ORBIS_REGISTRY:-iamorbis}/orbis-api:${ORBIS_VERSION:-latest}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://orbis:${DB_PASSWORD}@pgbouncer:5432/orbis?pgbouncer=true&connection_limit=1
+      DIRECT_URL: postgresql://orbis:${DB_PASSWORD}@postgres:5432/orbis
+      REDIS_URL: redis://redis:6379
+      TEMPORAL_ADDRESS: temporal:7233
+      FRONTEND_URL: ${APP_URL:-http://localhost}
+      CONNECTOR_REGISTRY_URL: https://app.iamorbis.one/registry/connectors.json
+    depends_on:
+      pgbouncer:
+        condition: service_started
+      redis:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:4000/health',r=>process.exit(0)).on('error',()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  worker:
+    image: ${ORBIS_REGISTRY:-iamorbis}/orbis-api:${ORBIS_VERSION:-latest}
+    restart: unless-stopped
+    command: ["node", "dist/temporal/worker.js"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://orbis:${DB_PASSWORD}@pgbouncer:5432/orbis?pgbouncer=true&connection_limit=1
+      DIRECT_URL: postgresql://orbis:${DB_PASSWORD}@postgres:5432/orbis
+      REDIS_URL: redis://redis:6379
+      TEMPORAL_ADDRESS: temporal:7233
+      FRONTEND_URL: ${APP_URL:-http://localhost}
+    depends_on:
+      pgbouncer:
+        condition: service_started
+      redis:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"const r=require('ioredis');const c=new r(process.env.REDIS_URL,{lazyConnect:false,enableReadyCheck:false});c.get('worker:heartbeat').then(v=>{c.disconnect();process.exit(v&&Date.now()-parseInt(v,10)<120000?0:1)}).catch(()=>{c.disconnect();process.exit(1)})\" 2>/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  frontend:
+    image: ${ORBIS_REGISTRY:-iamorbis}/orbis-frontend:${ORBIS_VERSION:-latest}
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.selfhosted.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ 2>/dev/null | grep -qi '<!doctype html' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  postgres_data:
+  redis_data:

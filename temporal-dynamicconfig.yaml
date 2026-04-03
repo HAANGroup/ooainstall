@@ -1,0 +1,11 @@
+limit.maxIDLength:
+  - value: 255
+    constraints: {}
+system.forceSearchAttributesCacheRefreshOnRead:
+  - value: true
+    constraints: {}
+
+# Retention: keep workflow history for 7 days to prevent Postgres bloat
+frontend.workflowExecutionRetentionPeriod:
+  - value: "168h"
+    constraints: {}
