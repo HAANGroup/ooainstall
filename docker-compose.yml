@@ -70,7 +70,6 @@ services:
       REDIS_URL: redis://redis:6379
       TEMPORAL_ADDRESS: temporal:7233
       FRONTEND_URL: ${APP_URL:-http://localhost}
-      CONNECTOR_REGISTRY_URL: https://app.iamorbis.one/registry/connectors.json
     depends_on:
       pgbouncer:
         condition: service_started
