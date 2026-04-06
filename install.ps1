@@ -1,4 +1,4 @@
-# ── Orbis Installer for Windows (PowerShell) ─────────────────────────────────
+# -- Orbis Installer for Windows (PowerShell) ---------------------------------
 # Usage: irm https://install.iamorbis.one/install.ps1 | iex
 # -----------------------------------------------------------------------------
 
@@ -80,6 +80,25 @@ function Write-BannerLine {
     Write-Host "$esc[1;36m$Text$esc[0m"
 }
 
+function Get-BannerLines {
+    $B  = [char]0x2588
+    $TR = [char]0x2557
+    $TL = [char]0x2554
+    $BR = [char]0x255D
+    $BL = [char]0x255A
+    $H  = [char]0x2550
+    $V  = [char]0x2551
+
+    @(
+        ("    " + ($B * 6) + $TR + " " + ($B * 6) + $TR + " " + ($B * 6) + $TR + " " + ($B * 2) + $TR + ($B * 7) + $TR),
+        ("   " + ($B * 2) + $TL + ($H * 3) + ($B * 2) + $TR + ($B * 2) + $TL + ($H * 2) + ($B * 2) + $TR + ($B * 2) + $TL + ($H * 2) + ($B * 2) + $TR + ($B * 2) + $V + ($B * 2) + $TL + ($H * 4) + $BR),
+        ("   " + ($B * 2) + $V + "   " + ($B * 2) + $V + ($B * 6) + $TL + $BR + ($B * 6) + $TL + $BR + ($B * 2) + $V + ($B * 7) + $TR),
+        ("   " + ($B * 2) + $V + "   " + ($B * 2) + $V + ($B * 2) + $TL + ($H * 2) + ($B * 2) + $TR + ($B * 2) + $TL + ($H * 2) + ($B * 2) + $TR + ($B * 2) + $V + $BL + ($H * 4) + ($B * 2) + $V),
+        ("   " + $BL + ($B * 6) + $TL + $BR + ($B * 2) + $V + "  " + ($B * 2) + $V + ($B * 6) + $TL + $BR + ($B * 2) + $V + ($B * 7) + $V),
+        ("    " + $BL + ($H * 5) + $BR + " " + $BL + $H + $BR + "  " + $BL + $H + $BR + $BL + ($H * 5) + $BR + " " + $BL + $H + $BR + $BL + ($H * 6) + $BR)
+    )
+}
+
 function Get-OrbisFile {
     param(
         [string]$Path,
@@ -103,17 +122,14 @@ function Get-OrbisFile {
 }
 
 Write-Host ""
-Write-BannerLine "    ██████╗ ██████╗ ██████╗ ██╗███████╗"
-Write-BannerLine "   ██╔═══██╗██╔══██╗██╔══██╗██║██╔════╝"
-Write-BannerLine "   ██║   ██║██████╔╝██████╔╝██║███████╗"
-Write-BannerLine "   ██║   ██║██╔══██╗██╔══██╗██║╚════██║"
-Write-BannerLine "   ╚██████╔╝██║  ██║██████╔╝██║███████║"
-Write-BannerLine "    ╚═════╝ ╚═╝  ╚═╝╚═════╝ ╚═╝╚══════╝"
+foreach ($line in Get-BannerLines) {
+    Write-BannerLine $line
+}
 Write-Host ""
-Write-Info "Orbis Self-Hosted Installer — version: $OrbisVersion"
+Write-Info "Orbis Self-Hosted Installer - version: $OrbisVersion"
 Write-Host ""
 
-# ── Check prerequisites ───────────────────────────────────────────────────────
+# -- Check prerequisites -------------------------------------------------------
 try { docker --version | Out-Null } catch { Write-Err "Docker not found. Install from https://docs.docker.com/desktop/windows/" }
 
 try { docker info | Out-Null } catch {
@@ -126,12 +142,12 @@ Write-Info "Docker found: $(docker --version)"
 Write-Info "Compose found: $(docker compose version)"
 Write-Host ""
 
-# ── Install directory ─────────────────────────────────────────────────────────
+# -- Install directory ---------------------------------------------------------
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 Set-Location $InstallDir
 Write-Info "Installing into: $InstallDir"
 
-# ── Download compose + env ────────────────────────────────────────────────────
+# -- Download compose + env ----------------------------------------------------
 Get-OrbisFile -Path "docker-compose.yml" -OutFile "docker-compose.yml"
 Get-OrbisFile -Path "temporal-dynamicconfig.yaml" -OutFile "temporal-dynamicconfig.yaml"
 Get-OrbisFile -Path "nginx.selfhosted.conf" -OutFile "nginx.selfhosted.conf"
@@ -139,7 +155,7 @@ Get-OrbisFile -Path "nginx.selfhosted.conf" -OutFile "nginx.selfhosted.conf"
 if (-not (Test-Path ".env")) {
     Get-OrbisFile -Path ".env.example" -OutFile ".env"
 
-    # ── Auto-generate required secrets ────────────────────────────────────────
+    # -- Auto-generate required secrets ----------------------------------------
     Write-Info "Auto-generating secrets..."
     $encryptionKey = New-RandomHex 32
     $dbPassword    = New-RandomHex 16
@@ -180,7 +196,7 @@ if (-not (Test-Path ".env")) {
     Write-Info ".env already exists, skipping template."
 }
 
-# ── Validate required secrets are set ────────────────────────────────────────
+# -- Validate required secrets are set ----------------------------------------
 function Assert-EnvVar {
     param($key)
     $line = Get-Content ".env" | Where-Object { $_ -match "^$key=(.+)" }
@@ -190,7 +206,7 @@ Assert-EnvVar "ENCRYPTION_KEY"
 Assert-EnvVar "DB_PASSWORD"
 Assert-EnvVar "JWT_SECRET"
 
-# ── Pull images ───────────────────────────────────────────────────────────────
+# -- Pull images ---------------------------------------------------------------
 Write-Host ""
 Write-Info "Pulling Orbis images (this may take a few minutes)..."
 try {
@@ -199,7 +215,7 @@ try {
     Write-Err "Failed to pull images. Check your internet connection and try again.`n  If the problem persists: https://docs.iamorbis.one/self-hosted/troubleshooting"
 }
 
-# ── Start ─────────────────────────────────────────────────────────────────────
+# -- Start --------------------------------------------------------------------
 Write-Host ""
 $startNow = Read-Host "  Start Orbis now? [Y/n]"
 if ($startNow -eq "" -or $startNow -match "^[Yy]") {
@@ -293,7 +309,7 @@ if ($startNow -eq "" -or $startNow -match "^[Yy]") {
 }
 
 Write-Host ""
-# ── Telemetry ping (anonymous) ────────────────────────────────────────────────
+# -- Telemetry ping (anonymous) ------------------------------------------------
 try {
     $body = "{`"version`":`"$OrbisVersion`",`"os`":`"Windows`"}"
     Invoke-WebRequest -Uri "$PrimaryBaseUrl/telemetry/install" `
