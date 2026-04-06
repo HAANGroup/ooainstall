@@ -23,6 +23,103 @@ ask()     { echo -e "  ${M}?${NC}  $*"; }
 error()   { echo -e "\n  ${R}✖  $*${NC}" >&2; exit 1; }
 divider() { echo -e "  ${DIM}────────────────────────────────────────────────${NC}"; }
 
+BOX_WIDTH=56
+BOX_MAX_WIDTH=76
+
+box_utf8_enabled() {
+  case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
+    *UTF-8*|*utf8*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+box_chars() {
+  if box_utf8_enabled; then
+    BOX_TOP_LEFT='╔'; BOX_TOP_JOIN='╠'; BOX_BOTTOM_LEFT='╚'
+    BOX_TOP_RIGHT='╗'; BOX_TOP_FILL='═'; BOX_SIDE='║'
+    BOX_MID_RIGHT='╣'; BOX_BOTTOM_RIGHT='╝'
+  else
+    BOX_TOP_LEFT='+'; BOX_TOP_JOIN='+'; BOX_BOTTOM_LEFT='+'
+    BOX_TOP_RIGHT='+'; BOX_TOP_FILL='-'; BOX_SIDE='|'
+    BOX_MID_RIGHT='+'; BOX_BOTTOM_RIGHT='+'
+  fi
+}
+
+wrap_box_text() {
+  local text="$1"
+  local width="$2"
+  local line=""
+  local word=""
+  local remaining=""
+  local chunk=""
+
+  if [ -z "$text" ]; then
+    printf '%s\n' ""
+    return
+  fi
+
+  for word in $text; do
+    if [ ${#word} -gt "$width" ]; then
+      if [ -n "$line" ]; then
+        printf '%s\n' "$line"
+        line=""
+      fi
+
+      remaining="$word"
+      while [ ${#remaining} -gt "$width" ]; do
+        chunk=${remaining:0:$width}
+        printf '%s\n' "$chunk"
+        remaining=${remaining:$width}
+      done
+
+      if [ -n "$remaining" ]; then
+        line="$remaining"
+      fi
+      continue
+    fi
+
+    if [ -z "$line" ]; then
+      line="$word"
+      continue
+    fi
+    if [ $(( ${#line} + 1 + ${#word} )) -le "$width" ]; then
+      line="${line} ${word}"
+    else
+      printf '%s\n' "$line"
+      line="$word"
+    fi
+  done
+
+  if [ -n "$line" ]; then
+    printf '%s\n' "$line"
+  fi
+}
+
+print_box_border() {
+  local left="$1"
+  local fill="$2"
+  local right="$3"
+  local line
+  line=$(printf "%${BOX_WIDTH}s" "")
+  line=${line// /$fill}
+  printf "  ${G}${BOLD}%s%s%s${NC}\n" "$left" "$line" "$right"
+}
+
+print_box_line() {
+  local text="$1"
+  local width="$BOX_WIDTH"
+  local line
+
+  if [ -z "$text" ]; then
+    printf "  ${G}${BOLD}%s${NC} %-*s ${G}${BOLD}%s${NC}\n" "$BOX_SIDE" "$width" "" "$BOX_SIDE"
+    return
+  fi
+
+  while IFS= read -r line; do
+    printf "  ${G}${BOLD}%s${NC} %-*s ${G}${BOLD}%s${NC}\n" "$BOX_SIDE" "$width" "$line" "$BOX_SIDE"
+  done < <(wrap_box_text "$text" "$width")
+}
+
 download_file() {
   local path="$1"
   local output="$2"
@@ -155,6 +252,28 @@ if [[ "${START_NOW:-Y}" =~ ^[Yy]$ ]]; then
   # Read admin credentials from .env
   ADMIN_EMAIL_VAL=$(grep -E "^ADMIN_EMAIL="    .env 2>/dev/null | cut -d= -f2- | tr -d '[:space:]' || true)
   ADMIN_PASS_VAL=$(grep  -E "^ADMIN_PASSWORD=" .env 2>/dev/null | cut -d= -f2- | tr -d '[:space:]' || true)
+  box_chars
+
+  BOX_LINES=(
+    "Orbis is up and running!"
+    "URL: http://localhost"
+    "Logs: cd ${INSTALL_DIR} && docker compose logs -f"
+    "Stop: cd ${INSTALL_DIR} && docker compose down"
+  )
+
+  if [ -n "$ADMIN_EMAIL_VAL" ] && [ -n "$ADMIN_PASS_VAL" ]; then
+    BOX_LINES+=("" "Admin login (change after first sign-in):" "Email: ${ADMIN_EMAIL_VAL}" "Password: ${ADMIN_PASS_VAL}")
+  fi
+
+  max_line_length=0
+  for line in "${BOX_LINES[@]}"; do
+    [ "${#line}" -gt "$max_line_length" ] && max_line_length=${#line}
+  done
+  if [ "$max_line_length" -gt "$BOX_MAX_WIDTH" ]; then
+    BOX_WIDTH="$BOX_MAX_WIDTH"
+  elif [ "$max_line_length" -gt "$BOX_WIDTH" ]; then
+    BOX_WIDTH="$max_line_length"
+  fi
 
   # Wait for the API to become healthy (up to 3 minutes)
   step "Waiting for services to be ready"
@@ -180,20 +299,20 @@ if [[ "${START_NOW:-Y}" =~ ^[Yy]$ ]]; then
 
   # ── Success banner ─────────────────────────────────────────────────────────
   echo ""
-  echo -e "  ${G}${BOLD}╔══════════════════════════════════════════════════╗${NC}"
-  echo -e "  ${G}${BOLD}║           Orbis is up and running!               ║${NC}"
-  echo -e "  ${G}${BOLD}╠══════════════════════════════════════════════════╣${NC}"
-  echo -e "  ${G}${BOLD}║${NC}  ${W}URL:${NC}       http://localhost                      ${G}${BOLD}║${NC}"
+  print_box_border "$BOX_TOP_LEFT" "$BOX_TOP_FILL" "$BOX_TOP_RIGHT"
+  print_box_line "Orbis is up and running!"
+  print_box_border "$BOX_TOP_JOIN" "$BOX_TOP_FILL" "$BOX_MID_RIGHT"
+  print_box_line "URL: http://localhost"
   if [ -n "$ADMIN_EMAIL_VAL" ] && [ -n "$ADMIN_PASS_VAL" ]; then
-  echo -e "  ${G}${BOLD}║${NC}                                                  ${G}${BOLD}║${NC}"
-  echo -e "  ${G}${BOLD}║${NC}  ${W}Admin login (change after first sign-in):${NC}       ${G}${BOLD}║${NC}"
-  echo -e "  ${G}${BOLD}║${NC}  ${C}Email:${NC}     ${ADMIN_EMAIL_VAL}$(printf '%*s' $((30 - ${#ADMIN_EMAIL_VAL})) '')${G}${BOLD}║${NC}"
-  echo -e "  ${G}${BOLD}║${NC}  ${C}Password:${NC}  ${ADMIN_PASS_VAL}$(printf '%*s' $((30 - ${#ADMIN_PASS_VAL})) '')${G}${BOLD}║${NC}"
+    print_box_line ""
+    print_box_line "Admin login (change after first sign-in):"
+    print_box_line "Email: ${ADMIN_EMAIL_VAL}"
+    print_box_line "Password: ${ADMIN_PASS_VAL}"
   fi
-  echo -e "  ${G}${BOLD}╠══════════════════════════════════════════════════╣${NC}"
-  echo -e "  ${G}${BOLD}║${NC}  ${DIM}Logs:  cd ~/orbis && docker compose logs -f${NC}    ${G}${BOLD}║${NC}"
-  echo -e "  ${G}${BOLD}║${NC}  ${DIM}Stop:  cd ~/orbis && docker compose down${NC}       ${G}${BOLD}║${NC}"
-  echo -e "  ${G}${BOLD}╚══════════════════════════════════════════════════╝${NC}"
+  print_box_border "$BOX_TOP_JOIN" "$BOX_TOP_FILL" "$BOX_MID_RIGHT"
+  print_box_line "Logs: cd ${INSTALL_DIR} && docker compose logs -f"
+  print_box_line "Stop: cd ${INSTALL_DIR} && docker compose down"
+  print_box_border "$BOX_BOTTOM_LEFT" "$BOX_TOP_FILL" "$BOX_BOTTOM_RIGHT"
   echo ""
 else
   divider

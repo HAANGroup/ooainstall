@@ -8,6 +8,8 @@ $OrbisVersion  = if ($env:ORBIS_VERSION) { $env:ORBIS_VERSION } else { "latest" 
 $InstallDir    = if ($env:INSTALL_DIR)   { $env:INSTALL_DIR   } else { "$env:USERPROFILE\orbis" }
 $PrimaryBaseUrl      = "https://install.iamorbis.one"
 $MirrorBaseUrl       = "https://raw.githubusercontent.com/HAANGroup/ooainstall/master"
+$script:BoxWidth      = 48
+$script:BoxMaxWidth   = 76
 
 function Write-Info    { param($msg) Write-Host "[orbis] $msg" -ForegroundColor Cyan }
 function Write-Success { param($msg) Write-Host "[orbis] $msg" -ForegroundColor Green }
@@ -15,6 +17,61 @@ function Write-Warn    { param($msg) Write-Host "[orbis] $msg" -ForegroundColor 
 function Write-Err     { param($msg) Write-Host "[orbis] ERROR: $msg" -ForegroundColor Red; exit 1 }
 
 function New-RandomHex { param($bytes) -join ((1..$bytes) | ForEach-Object { '{0:x2}' -f (Get-Random -Max 256) }) }
+
+function Write-BoxLine {
+    param(
+        [string]$Text,
+        [ConsoleColor]$Color = [ConsoleColor]::Green
+    )
+
+    $width = $script:BoxWidth
+    if ([string]::IsNullOrEmpty($Text)) {
+        Write-Host ("  | {0} |" -f "".PadRight($width)) -ForegroundColor $Color
+        return
+    }
+
+    $words = $Text -split '\s+'
+    $line = ""
+
+    foreach ($word in $words) {
+        if ($word.Length -gt $width) {
+            if ($line.Length -gt 0) {
+                Write-Host ("  | {0} |" -f $line.PadRight($width)) -ForegroundColor $Color
+                $line = ""
+            }
+
+            $offset = 0
+            while ($offset -lt $word.Length) {
+                $length = [Math]::Min($width, $word.Length - $offset)
+                $content = $word.Substring($offset, $length).PadRight($width)
+                Write-Host ("  | {0} |" -f $content) -ForegroundColor $Color
+                $offset += $length
+            }
+            continue
+        }
+
+        if ($line.Length -eq 0) {
+            $line = $word
+            continue
+        }
+
+        if (($line.Length + 1 + $word.Length) -le $width) {
+            $line = "$line $word"
+        } else {
+            Write-Host ("  | {0} |" -f $line.PadRight($width)) -ForegroundColor $Color
+            $line = $word
+        }
+    }
+
+    if ($line.Length -gt 0) {
+        Write-Host ("  | {0} |" -f $line.PadRight($width)) -ForegroundColor $Color
+    }
+}
+
+function Write-BoxBorder {
+    $fill = "".PadLeft($script:BoxWidth, "-")
+    Write-Host ("  +{0}+" -f $fill) -ForegroundColor Green
+}
 
 function Get-OrbisFile {
     param(
@@ -39,12 +96,12 @@ function Get-OrbisFile {
 }
 
 Write-Host ""
-Write-Host "  ██████╗ ██████╗ ██████╗ ██╗███████╗" -ForegroundColor Magenta
-Write-Host "  ██╔═══██╗██╔══██╗██╔══██╗██║██╔════╝" -ForegroundColor Magenta
-Write-Host "  ██║   ██║██████╔╝██████╔╝██║███████╗" -ForegroundColor Magenta
-Write-Host "  ██║   ██║██╔══██╗██╔══██╗██║╚════██║" -ForegroundColor Magenta
-Write-Host "  ╚██████╔╝██║  ██║██████╔╝██║███████║" -ForegroundColor Magenta
-Write-Host "   ╚═════╝ ╚═╝  ╚═╝╚═════╝ ╚═╝╚══════╝" -ForegroundColor Magenta
+Write-Host "    ██████╗ ██████╗ ██████╗ ██╗███████╗" -ForegroundColor Cyan
+Write-Host "   ██╔═══██╗██╔══██╗██╔══██╗██║██╔════╝" -ForegroundColor Cyan
+Write-Host "   ██║   ██║██████╔╝██████╔╝██║███████╗" -ForegroundColor Cyan
+Write-Host "   ██║   ██║██╔══██╗██╔══██╗██║╚════██║" -ForegroundColor Cyan
+Write-Host "   ╚██████╔╝██║  ██║██████╔╝██║███████║" -ForegroundColor Cyan
+Write-Host "    ╚═════╝ ╚═╝  ╚═╝╚═════╝ ╚═╝╚══════╝" -ForegroundColor Cyan
 Write-Host ""
 Write-Info "Orbis Self-Hosted Installer — version: $OrbisVersion"
 Write-Host ""
@@ -165,22 +222,42 @@ if ($startNow -eq "" -or $startNow -match "^[Yy]") {
         # Read admin credentials from .env (may have been set above or pre-existing)
         $adminEmailVal = (Get-Content ".env" | Where-Object { $_ -match "^ADMIN_EMAIL=(.+)" } | Select-Object -First 1) -replace "^ADMIN_EMAIL=", ""
         $adminPassVal  = (Get-Content ".env" | Where-Object { $_ -match "^ADMIN_PASSWORD=(.+)" } | Select-Object -First 1) -replace "^ADMIN_PASSWORD=", ""
+        $boxLines = @(
+            "Orbis is up and running!",
+            "URL: http://localhost",
+            "Logs: cd $InstallDir && docker compose logs -f",
+            "Stop: cd $InstallDir && docker compose down"
+        )
+        if ($adminEmailVal -and $adminPassVal) {
+            $boxLines += @(
+                "",
+                "Admin login (change after first sign-in):",
+                "Email: $adminEmailVal",
+                "Password: $adminPassVal"
+            )
+        }
+        $maxLineLength = ($boxLines | ForEach-Object { $_.Length } | Measure-Object -Maximum).Maximum
+        if ($maxLineLength -gt $script:BoxMaxWidth) {
+            $script:BoxWidth = $script:BoxMaxWidth
+        } elseif ($maxLineLength -gt $script:BoxWidth) {
+            $script:BoxWidth = $maxLineLength
+        }
 
         Write-Host ""
-        Write-Host "  +--------------------------------------------------+" -ForegroundColor Green
-        Write-Host "  |         Orbis is up and running!                  |" -ForegroundColor Green
-        Write-Host "  +--------------------------------------------------+" -ForegroundColor Green
-        Write-Host "  |  URL:      http://localhost                       |" -ForegroundColor Green
+        Write-BoxBorder
+        Write-BoxLine "Orbis is up and running!"
+        Write-BoxBorder
+        Write-BoxLine "URL: http://localhost"
         if ($adminEmailVal -and $adminPassVal) {
-        Write-Host "  |                                                  |" -ForegroundColor Green
-        Write-Host "  |  Admin login (change after first sign-in):       |" -ForegroundColor Green
-        Write-Host "  |  Email:    $adminEmailVal" -ForegroundColor Green
-        Write-Host "  |  Password: $adminPassVal" -ForegroundColor Green
+            Write-BoxLine ""
+            Write-BoxLine "Admin login (change after first sign-in):"
+            Write-BoxLine "Email: $adminEmailVal"
+            Write-BoxLine "Password: $adminPassVal"
         }
-        Write-Host "  +--------------------------------------------------+" -ForegroundColor Green
-        Write-Host "  |  Logs:  cd $InstallDir; docker compose logs -f" -ForegroundColor DarkGray
-        Write-Host "  |  Stop:  cd $InstallDir; docker compose down" -ForegroundColor DarkGray
-        Write-Host "  +--------------------------------------------------+" -ForegroundColor Green
+        Write-BoxBorder
+        Write-BoxLine "Logs: cd $InstallDir && docker compose logs -f" ([ConsoleColor]::DarkGray)
+        Write-BoxLine "Stop: cd $InstallDir && docker compose down" ([ConsoleColor]::DarkGray)
+        Write-BoxBorder
         Write-Host ""
 
         Start-Process "http://localhost"
